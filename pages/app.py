@@ -16,9 +16,11 @@ def load_model():
     return YOLO(model_path)
 
 model = load_model()
+if "authenticated" not in st.session_state:
+    st.warning("You must login in first, please return to login page.")
+    st.stop()
 
 st.title("YOLOv8 Segmentation App")
-
 # Allow user to upload image or video
 uploaded_file = st.file_uploader("Upload an image or video", type=["jpg", "jpeg", "png", "mp4", "mov", "avi", "mkv"])
 
