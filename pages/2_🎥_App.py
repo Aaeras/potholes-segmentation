@@ -63,7 +63,7 @@ if uploaded_file is not None:
         st.video(tmp_video_path, format="video/mp4", start_time=0)
         
         if st.button("Detect Objects on Video"):
-            results = model.track(source=tmp_video_path, conf=confidence_threshold, save=True)
+            results = model.track(source=tmp_video_path,conf=confidence_threshold,save=True,save_dir="/tmp",)
 
             annotated_video_path = os.path.join(
                 results[0].save_dir,
