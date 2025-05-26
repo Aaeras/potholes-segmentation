@@ -1,6 +1,7 @@
 import streamlit as st
 import bcrypt
 from userdb import userList
+st.set_page_config(page_title="Login", page_icon="🔒", initial_sidebar_state="collapsed")
 
 def hashPassword(password):  # only including to show process, would not be in production
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
@@ -20,7 +21,6 @@ def login_page():
     if st.session_state.get("authenticated", False):
         st.title("Logout")
         st.write(f"Currently logged in as: {st.session_state.get('username', 'Unknown')}")
-        
         if st.button("Logout"):
             st.session_state.authenticated = False
             st.session_state.username = None
@@ -47,7 +47,9 @@ def login_page():
 
     if st.button("Login"):
         if verify(username, password):
-            st.success(f"Welcome {username}!")
+            st.success(f"Welcome {username}! Please wait while you are redirected to our app!")
             st.session_state.authenticated = True
             st.session_state.username = username
-            st.rerun()  # Refresh to update navigation and show app page
+            st.switch_page("pages/2_🎥_App.py")
+if "authenticated" not in st.session_state:
+    login_page()

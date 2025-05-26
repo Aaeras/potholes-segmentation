@@ -4,3 +4,5 @@
 *.pt
 *.zip
 .idea
+/__pycache__
+pages/__pycache__
