@@ -7,6 +7,7 @@ from ultralytics import YOLO
 import pandas as pd
 import time
 import streamlitpatch
+import shutil
 
 
 # Cache the model to avoid reloading on every run
@@ -59,19 +60,37 @@ if uploaded_file is not None:
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as tmp_file:
             tmp_file.write(uploaded_file.read())
             tmp_video_path = tmp_file.name
-        
-        st.video(tmp_video_path, format="video/mp4", start_time=0)
-        
-        if st.button("Detect Objects on Video"):
-            results = model.track(source=tmp_video_path,conf=confidence_threshold,save=True,save_dir="/tmp",)
 
-            annotated_video_path = os.path.join(
-                results[0].save_dir,
-                os.path.basename(tmp_video_path)
+        st.video(tmp_video_path, format="video/mp4", start_time=0)
+
+        if st.button("Detect Objects on Video"):
+            # Create a secure temp directory for YOLO's output
+            save_path = tempfile.mkdtemp()
+
+            # Run detection with YOLO
+            results = model.track(
+                source=tmp_video_path,
+                conf=confidence_threshold,
+                save=True,
+                save_dir=save_path,
             )
 
-            st.video(annotated_video_path, format="video/mp4", start_time=0)
+            # Dynamically find the saved annotated video in YOLO output
+            annotated_video_path = None
+            for file in os.listdir(results[0].save_dir):
+                if file.endswith(".mp4"):
+                    annotated_video_path = os.path.join(results[0].save_dir, file)
+                    break
 
+            if annotated_video_path is None:
+                st.error("Annotated video not found.")
+            else:
+                # Copy the annotated video to a temp file that Streamlit can serve
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_output:
+                    shutil.copyfile(annotated_video_path, tmp_output.name)
+                    st.video(tmp_output.name)
+
+            # ---- Process Detection Results ----
             dfs = []
             for frame_idx, res in enumerate(results):
                 df_frame = res.to_df()
@@ -80,11 +99,11 @@ if uploaded_file is not None:
 
             df_all = pd.concat(dfs, ignore_index=True)
             filtered = df_all[
-                df_all.track_id.notna() &
+                df_all.track_id.notna() & 
                 (df_all.confidence > confidence_threshold)
             ].copy()
 
-            cap = cv2.VideoCapture(annotated_video_path)
+            cap = cv2.VideoCapture(tmp_video_path)
             fps = cap.get(cv2.CAP_PROP_FPS)
             cap.release()
 
@@ -118,6 +137,5 @@ if uploaded_file is not None:
                 .apply(lambda s: time.strftime("%H:%M:%S", time.gmtime(s)))
             )
             df_sum['confidence_score'] = df_sum['confidence_score'].round(2)
-            st.dataframe(
-                df_sum[['track_id', 'type', 'appear_from', 'appear_to', 'confidence_score']]
-            )
+
+            st.dataframe(df_sum)
