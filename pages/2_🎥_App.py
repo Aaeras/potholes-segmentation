@@ -42,54 +42,52 @@ if uploaded_file is not None:
         st.image(original_rgb, caption="Original Image", use_container_width=True)
         
         if st.button("Detect Objects on Image"):
-            results = model.predict(source=img_cv, conf=confidence_threshold)
-            res = results[0]
-            
-            # Get annotated image (res.plot() returns a BGR image)
-            annotated_img = res.plot()
-            annotated_rgb = annotated_img[..., ::-1]  # convert BGR to RGB
-            
-            # Display images side by side using Streamlit columns
-            col1, col2 = st.columns(2)
-            with col1:
-                st.image(original_rgb, caption="Original Image", use_container_width=True)
-            with col2:
-                st.image(annotated_rgb, caption="Segmented", use_container_width=True)
+            with st.spinner("Processing input..."):
+                results = model.predict(source=img_cv, conf=confidence_threshold)
+                res = results[0]
+                
+                # Get annotated image (res.plot() returns a BGR image)
+                annotated_img = res.plot()
+                annotated_rgb = annotated_img[..., ::-1]  # convert BGR to RGB
+                
+                # Display images side by side using Streamlit columns
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.image(original_rgb, caption="Original Image", use_container_width=True)
+                with col2:
+                    st.image(annotated_rgb, caption="Segmented", use_container_width=True)
 
 
     elif filename.endswith(("mp4", "mov", "avi", "mkv")):
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as tmp_file:
-            tmp_file.write(uploaded_file.read())
-            tmp_video_path = tmp_file.name
+        temp_dir = tempfile.mkdtemp()
+        input_video_path = os.path.join(temp_dir, "input_video"+os.path.splitext(filename)[1])
+        with open (input_video_path, 'wb') as f:
+            f.write(uploaded_file.getbuffer())
+        st.subheader("Original Video")
+        st.video(input_video_path)
 
-        st.video(tmp_video_path, format="video/mp4", start_time=0)
-
+        
         if st.button("Detect Objects on Video"):
-            # Run YOLO - saves annotated video to runs/segment/predict
-            results = model.track(
-                source=tmp_video_path,
-                conf=confidence_threshold,
-                save=True,
-            )
+            with st.spinner("Processing video, please be aware this may take awhile"):
+                results = model.track(
+                    source=input_video_path,
+                    conf=confidence_threshold,
+                    save=True,
+                    project=temp_dir,
+                    name="output"
+                )
+                output_dir = os.path.join(temp_dir, "output")
+                processed_video = None
 
-            # Use YOLO's reported output directory
-            output_dir = results[0].save_dir
+                for file in os.listdir(output_dir):
+                    if file.endswith(".mp4"):
+                        processed_video = os.path.join(output_dir, file)
+                        break
+                if processed_video and os.path.exists(processed_video):
+                    st.subheader("Processed Video")
+                    st.session_state['processed_video'] = processed_video
 
-            # Try to locate the saved annotated video file
-            annotated_video_path = None
-            for file in os.listdir(output_dir):
-                if file.endswith(".mp4"):
-                    annotated_video_path = os.path.join(output_dir, file)
-                    break
-
-            if annotated_video_path is None:
-                st.error("Annotated video not found in YOLO's output directory.")
-            else:
-                # Copy to a temporary file so Streamlit can access it
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_streamlit_file:
-                    shutil.copyfile(annotated_video_path, tmp_streamlit_file.name)
-                    st.video(tmp_streamlit_file.name)
-
+                    st.video(processed_video)
             # ----------- Extract Detection Data and Display Table -----------
             dfs = []
             for frame_idx, res in enumerate(results):
@@ -97,46 +95,48 @@ if uploaded_file is not None:
                 df_frame["frame"] = frame_idx
                 dfs.append(df_frame)
 
-            df_all = pd.concat(dfs, ignore_index=True)
-            filtered = df_all[
-                df_all.track_id.notna() &
-                (df_all.confidence > confidence_threshold)
-            ].copy()
+            if dfs:
+                df_all = pd.concat(dfs, ignore_index=True)
+                filtered = df_all[
+                    df_all.track_id.notna() &
+                    (df_all.confidence > confidence_threshold)
+                ].copy()
 
-            cap = cv2.VideoCapture(tmp_video_path)
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            cap.release()
+                cap = cv2.VideoCapture(input_video_path)
+                fps = cap.get(cv2.CAP_PROP_FPS)
+                cap.release()
+                
+                if not filtered.empty:
+                    df_sum = (
+                        filtered
+                        .groupby(['track_id', 'name'], as_index=False)
+                        .agg(
+                            first_frame=('frame', 'min'),
+                            last_frame=('frame', 'max'),
+                            confidence_score=('confidence', 'mean'),
+                        )
+                    )
 
-            df_sum = (
-                filtered
-                .groupby(['track_id', 'name'], as_index=False)
-                .agg(
-                    first_frame=('frame', 'min'),
-                    last_frame=('frame', 'max'),
-                    confidence_score=('confidence', 'mean'),
-                )
-            )
+                    df_sum['appear_from'] = pd.to_timedelta(df_sum.first_frame / fps, unit='s')
+                    df_sum['appear_to'] = pd.to_timedelta(df_sum.last_frame / fps, unit='s')
 
-            df_sum['appear_from'] = pd.to_timedelta(df_sum.first_frame / fps, unit='s')
-            df_sum['appear_to'] = pd.to_timedelta(df_sum.last_frame / fps, unit='s')
+                    df_sum = (
+                        df_sum
+                        .rename(columns={'name': 'type'})
+                        [['track_id', 'type', 'appear_from', 'appear_to', 'confidence_score']]
+                    )
 
-            df_sum = (
-                df_sum
-                .rename(columns={'name': 'type'})
-                [['track_id', 'type', 'appear_from', 'appear_to', 'confidence_score']]
-            )
+                    df_sum['appear_from'] = (
+                        df_sum['appear_from']
+                        .dt.total_seconds()
+                        .apply(lambda s: time.strftime("%H:%M:%S", time.gmtime(s)))
+                    )
+                    df_sum['appear_to'] = (
+                        df_sum['appear_to']
+                        .dt.total_seconds()
+                        .apply(lambda s: time.strftime("%H:%M:%S", time.gmtime(s)))
+                    )
+                    df_sum['confidence_score'] = df_sum['confidence_score'].round(2)
 
-            df_sum['appear_from'] = (
-                df_sum['appear_from']
-                .dt.total_seconds()
-                .apply(lambda s: time.strftime("%H:%M:%S", time.gmtime(s)))
-            )
-            df_sum['appear_to'] = (
-                df_sum['appear_to']
-                .dt.total_seconds()
-                .apply(lambda s: time.strftime("%H:%M:%S", time.gmtime(s)))
-            )
-            df_sum['confidence_score'] = df_sum['confidence_score'].round(2)
-
-            st.write("Detected object types:", df_all['name'].unique())
-            st.dataframe(df_sum)
+                    st.write("Detected object types:", df_all['name'].unique())
+                    st.dataframe(df_sum)
