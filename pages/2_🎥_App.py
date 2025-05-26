@@ -8,6 +8,7 @@ import pandas as pd
 import time
 import streamlitpatch
 import shutil
+import glob
 
 
 # Cache the model to avoid reloading on every run
@@ -59,84 +60,115 @@ if uploaded_file is not None:
 
 
     elif filename.endswith(("mp4", "mov", "avi", "mkv")):
-        temp_dir = tempfile.mkdtemp()
-        input_video_path = os.path.join(temp_dir, "input_video"+os.path.splitext(filename)[1])
-        with open (input_video_path, 'wb') as f:
-            f.write(uploaded_file.getbuffer())
-        st.subheader("Original Video")
-        st.video(input_video_path)
+            if 'temp_dir' not in st.session_state:
+                st.session_state.temp_dir = tempfile.mkdtemp()
+                st.session_state.results_dir = os.path.join(st.session_state.temp_dir, "results")
+                os.makedirs(st.session_state.results_dir, exist_ok=True)
+            input_name = f"input_{int(time.time())}"
+            input_ext = os.path.splitext(filename)[1]
+            input_video_path = os.path.join(st.session_state.temp_dir, f"{input_name}{input_ext}")
 
-        
-        if st.button("Detect Objects on Video"):
-            with st.spinner("Processing video, please be aware this may take awhile"):
-                results = model.track(
-                    source=input_video_path,
-                    conf=confidence_threshold,
-                    save=True,
-                    project=temp_dir,
-                    name="output"
-                )
-                output_dir = os.path.join(temp_dir, "output")
-                processed_video = None
+            with open(input_video_path, 'wb') as f:
+                f.write(uploaded_file.getbuffer())
+            
+            st.subheader("Original Video")
+            st.video(input_video_path)
+            st.session_state.input_video_path = input_video_path
 
-                for file in os.listdir(output_dir):
-                    if file.endswith(".mp4"):
-                        processed_video = os.path.join(output_dir, file)
-                        break
-                if processed_video and os.path.exists(processed_video):
-                    st.subheader("Processed Video")
-                    st.session_state['processed_video'] = processed_video
+            if (st.button("Detect Objects on Video")):
+                with st.spinner("Processing video... please be aware that this may take awhile."):
+                    output_folder = os.path.join(st.session_state.results_dir, f"output_{int(time.time())}")
+                    os.makedirs(output_folder, exist_ok=True)
 
-                    st.video(processed_video)
-            # ----------- Extract Detection Data and Display Table -----------
-            dfs = []
-            for frame_idx, res in enumerate(results):
-                df_frame = res.to_df()
-                df_frame["frame"] = frame_idx
-                dfs.append(df_frame)
-
-            if dfs:
-                df_all = pd.concat(dfs, ignore_index=True)
-                filtered = df_all[
-                    df_all.track_id.notna() &
-                    (df_all.confidence > confidence_threshold)
-                ].copy()
-
-                cap = cv2.VideoCapture(input_video_path)
-                fps = cap.get(cv2.CAP_PROP_FPS)
-                cap.release()
-                
-                if not filtered.empty:
-                    df_sum = (
-                        filtered
-                        .groupby(['track_id', 'name'], as_index=False)
-                        .agg(
-                            first_frame=('frame', 'min'),
-                            last_frame=('frame', 'max'),
-                            confidence_score=('confidence', 'mean'),
+                    try:
+                        results = model.track(
+                            source = input_video_path,
+                            conf=confidence_threshold,
+                            save=True,
+                            project=st.session_state.results_dir,
+                            name=f"output_{int(time.time())}"
                         )
-                    )
 
-                    df_sum['appear_from'] = pd.to_timedelta(df_sum.first_frame / fps, unit='s')
-                    df_sum['appear_to'] = pd.to_timedelta(df_sum.last_frame / fps, unit='s')
+                        st.write(f"YOLO Output Directory: {results[0].save_dir}")
 
-                    df_sum = (
-                        df_sum
-                        .rename(columns={'name': 'type'})
-                        [['track_id', 'type', 'appear_from', 'appear_to', 'confidence_score']]
-                    )
+                        output_dir = results[0].save_dir
+                        processed_video = glob.glob(os.path.join(output_dir, "*.mp4"))
 
-                    df_sum['appear_from'] = (
-                        df_sum['appear_from']
-                        .dt.total_seconds()
-                        .apply(lambda s: time.strftime("%H:%M:%S", time.gmtime(s)))
-                    )
-                    df_sum['appear_to'] = (
-                        df_sum['appear_to']
-                        .dt.total_seconds()
-                        .apply(lambda s: time.strftime("%H:%M:%S", time.gmtime(s)))
-                    )
-                    df_sum['confidence_score'] = df_sum['confidence_score'].round(2)
+                        if processed_video:
+                            processed_video = processed_video[0]
+                            st.session_state.processed_video = processed_video
+                            
+                            output_copy = os.path.join(st.session_state.results_dir, "latest_output,mp4")
+                            shutil.copy2(processed_video, output_copy)
+                            st.session_state.output_copy = output_copy
 
-                    st.write("Detected object types:", df_all['name'].unique())
-                    st.dataframe(df_sum)
+                            st.header("Processed Video")
+                            st.video(output_copy)
+
+                            with open(output_copy, 'rb') as video_file:
+                                video_bytes = video_file.read()
+                                st.subheader("Secondary Video Display")
+                                st.video(video_bytes)
+                        else:
+                            st.error("No processed video found in YOLO output directory")
+                            
+                    except Exception as e:
+                        st.error(f"Error during video processing: {str(e)}")
+
+
+
+            # ----------- Extract Detection Data and Display Table -----------
+            try:
+                dfs = []
+                for frame_idx, res in enumerate(results):
+                    df_frame = res.to_df()
+                    df_frame["frame"] = frame_idx
+                    dfs.append(df_frame)
+
+                if dfs:
+                    df_all = pd.concat(dfs, ignore_index=True)
+                    filtered = df_all[
+                        df_all.track_id.notna() &
+                        (df_all.confidence > confidence_threshold)
+                    ].copy()
+
+                    cap = cv2.VideoCapture(input_video_path)
+                    fps = cap.get(cv2.CAP_PROP_FPS)
+                    cap.release()
+                    
+                    if not filtered.empty:
+                        df_sum = (
+                            filtered
+                            .groupby(['track_id', 'name'], as_index=False)
+                            .agg(
+                                first_frame=('frame', 'min'),
+                                last_frame=('frame', 'max'),
+                                confidence_score=('confidence', 'mean'),
+                            )
+                        )
+
+                        df_sum['appear_from'] = pd.to_timedelta(df_sum.first_frame / fps, unit='s')
+                        df_sum['appear_to'] = pd.to_timedelta(df_sum.last_frame / fps, unit='s')
+
+                        df_sum = (
+                            df_sum
+                            .rename(columns={'name': 'type'})
+                            [['track_id', 'type', 'appear_from', 'appear_to', 'confidence_score']]
+                        )
+
+                        df_sum['appear_from'] = (
+                            df_sum['appear_from']
+                            .dt.total_seconds()
+                            .apply(lambda s: time.strftime("%H:%M:%S", time.gmtime(s)))
+                        )
+                        df_sum['appear_to'] = (
+                            df_sum['appear_to']
+                            .dt.total_seconds()
+                            .apply(lambda s: time.strftime("%H:%M:%S", time.gmtime(s)))
+                        )
+                        df_sum['confidence_score'] = df_sum['confidence_score'].round(2)
+
+                        st.write("Detected object types:", df_all['name'].unique())
+                        st.dataframe(df_sum)
+            except Exception as e:
+                st.error(f"Error processing detection data {str(e)}")
