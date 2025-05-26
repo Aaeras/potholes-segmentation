@@ -56,6 +56,7 @@ if uploaded_file is not None:
             with col2:
                 st.image(annotated_rgb, caption="Segmented", use_container_width=True)
 
+
     elif filename.endswith(("mp4", "mov", "avi", "mkv")):
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as tmp_file:
             tmp_file.write(uploaded_file.read())
@@ -64,33 +65,32 @@ if uploaded_file is not None:
         st.video(tmp_video_path, format="video/mp4", start_time=0)
 
         if st.button("Detect Objects on Video"):
-            # Create a secure temp directory for YOLO's output
-            save_path = tempfile.mkdtemp()
-
-            # Run detection with YOLO
+            # Run YOLO - saves annotated video to runs/segment/predict
             results = model.track(
                 source=tmp_video_path,
                 conf=confidence_threshold,
                 save=True,
-                save_dir=save_path,
             )
 
-            # Dynamically find the saved annotated video in YOLO output
+            # Use YOLO's reported output directory
+            output_dir = results[0].save_dir
+
+            # Try to locate the saved annotated video file
             annotated_video_path = None
-            for file in os.listdir(results[0].save_dir):
+            for file in os.listdir(output_dir):
                 if file.endswith(".mp4"):
-                    annotated_video_path = os.path.join(results[0].save_dir, file)
+                    annotated_video_path = os.path.join(output_dir, file)
                     break
 
             if annotated_video_path is None:
-                st.error("Annotated video not found.")
+                st.error("Annotated video not found in YOLO's output directory.")
             else:
-                # Copy the annotated video to a temp file that Streamlit can serve
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_output:
-                    shutil.copyfile(annotated_video_path, tmp_output.name)
-                    st.video(tmp_output.name)
+                # Copy to a temporary file so Streamlit can access it
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_streamlit_file:
+                    shutil.copyfile(annotated_video_path, tmp_streamlit_file.name)
+                    st.video(tmp_streamlit_file.name)
 
-            # ---- Process Detection Results ----
+            # ----------- Extract Detection Data and Display Table -----------
             dfs = []
             for frame_idx, res in enumerate(results):
                 df_frame = res.to_df()
@@ -99,7 +99,7 @@ if uploaded_file is not None:
 
             df_all = pd.concat(dfs, ignore_index=True)
             filtered = df_all[
-                df_all.track_id.notna() & 
+                df_all.track_id.notna() &
                 (df_all.confidence > confidence_threshold)
             ].copy()
 
@@ -138,4 +138,5 @@ if uploaded_file is not None:
             )
             df_sum['confidence_score'] = df_sum['confidence_score'].round(2)
 
+            st.write("Detected object types:", df_all['name'].unique())
             st.dataframe(df_sum)
