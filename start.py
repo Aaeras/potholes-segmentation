@@ -1,19 +1,24 @@
-import streamlitpatch
 import streamlit as st
-import cv2
-import numpy as np
-import tempfile
-import os
-from ultralytics import YOLO
-import pandas as pd
-import time
-import torch
+from pages.login import login_page
+from pages.app import app_page
 
-loginPage = st.Page("pages/login.py", title="Login ", icon="🔒")
-modelPage = st.Page("pages/app.py", title="App ", icon="🎥")
-
+# Initialize session state
 if "authenticated" not in st.session_state:
-    pg = st.navigation(loginPage)
+    st.session_state.authenticated = False
+
+# Define pages based on authentication status
+if st.session_state.authenticated:
+    # Show both pages when authenticated, but user starts on app page
+    pages = [
+        st.Page(app_page, title="App", icon="🎥"),
+        st.Page(login_page, title="Logout", icon="🔒")  # Acts as logout when authenticated
+    ]
 else:
-    pg = st.navigation([loginPage, modelPage])
+    # Only show login page when not authenticated
+    pages = [
+        st.Page(login_page, title="Login", icon="🔒")
+    ]
+
+# Create and run navigation
+pg = st.navigation(pages)
 pg.run()
