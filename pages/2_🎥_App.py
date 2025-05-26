@@ -56,59 +56,59 @@ if uploaded_file is not None:
                 st.session_state.temp_dir = tempfile.mkdtemp()
                 st.session_state.results_dir = os.path.join(st.session_state.temp_dir, "results")
                 os.makedirs(st.session_state.results_dir, exist_ok=True)
+
             input_name = f"input_{int(time.time())}"
             input_ext = os.path.splitext(filename)[1]
             input_video_path = os.path.join(st.session_state.temp_dir, f"{input_name}{input_ext}")
-
+            
             with open(input_video_path, 'wb') as f:
                 f.write(uploaded_file.getbuffer())
-            
             st.subheader("Original Video")
             st.video(input_video_path)
             st.session_state.input_video_path = input_video_path
-
-            if (st.button("Detect Objects on Video")):
-                with st.spinner("Processing video... please be aware that this may take awhile."):
+            
+            if st.button("Detect Objects on Video"):
+                with st.spinner("Processing video... This may take a while."):
                     output_folder = os.path.join(st.session_state.results_dir, f"output_{int(time.time())}")
                     os.makedirs(output_folder, exist_ok=True)
 
                     try:
                         results = model.track(
-                            source = input_video_path,
+                            source=input_video_path,
                             conf=confidence_threshold,
                             save=True,
                             project=st.session_state.results_dir,
                             name=f"output_{int(time.time())}"
                         )
-
-                        st.write(f"YOLO Output Directory: {results[0].save_dir}")
-
+                        
+                        st.write(f"YOLO output directory: {results[0].save_dir}")
                         output_dir = results[0].save_dir
-                        processed_video = glob.glob(os.path.join(output_dir, "*.mp4"))
-
-                        if processed_video:
-                            processed_video = processed_video[0]
+                        processed_videos = glob.glob(os.path.join(output_dir, "*.mp4"))
+                        
+                        if processed_videos:
+                            processed_video = processed_videos[0]
                             st.session_state.processed_video = processed_video
                             
-                            output_copy = os.path.join(st.session_state.results_dir, "latest_output,mp4")
+                            output_copy = os.path.join(st.session_state.results_dir, "latest_output.mp4")
                             shutil.copy2(processed_video, output_copy)
                             st.session_state.output_copy = output_copy
-
-                            st.header("Processed Video")
+                            
+                            st.subheader("Processed Video")
                             st.video(output_copy)
-
+                            
                             with open(output_copy, 'rb') as video_file:
                                 video_bytes = video_file.read()
-                                st.subheader("Secondary Video Display")
+                                st.subheader("Fallback Video Display (if above doesn't work)")
                                 st.video(video_bytes)
                         else:
-                            st.error("No processed video found in YOLO output directory")
-                            
+                            st.error("No processed video found in YOLO output directory.")
+                            st.write("Files in output directory:")
+                            if os.path.exists(output_dir):
+                                st.write(os.listdir(output_dir))
+                            else:
+                                st.error(f"Output directory does not exist: {output_dir}")
                     except Exception as e:
                         st.error(f"Error during video processing: {str(e)}")
-
-
-
             # ----------- Extract Detection Data and Display Table -----------
                     try:
                         dfs = []
