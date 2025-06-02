@@ -81,7 +81,7 @@ if uploaded_file is not None:
                 annotated_frame = result.plot()
                 annotated_frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
                 stframe.image(annotated_frame_rgb, channels="RGB", use_container_width=True)
-                time.sleep(speed / 1000.0)
+                #time.sleep(speed / 1000.0)
 
                 # Collect detections
                 boxes = result.boxes
