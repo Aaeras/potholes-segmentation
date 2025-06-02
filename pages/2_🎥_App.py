@@ -64,23 +64,50 @@ if uploaded_file is not None:
 
         cap = cv2.VideoCapture(temp_vid_path)
         stframe = st.empty()
+        detections = []
+        frame_number = 0
+
+        # Optional: let user set delay
+        speed = st.slider("Playback speed (ms delay between frames)", 0, 100, 10, 5)
 
         if st.button("Detect Objects on Video"):
             fps = cap.get(cv2.CAP_PROP_FPS)
-            wait_time = int(1000 / fps) if fps > 0 else 100
-
             while cap.isOpened():
                 ret, frame = cap.read()
                 if not ret:
                     break
 
                 results = model.predict(source=frame, conf=confidence_threshold)
-                res = results[0]
-                annotated_frame = res.plot()
-                annotated_frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+                result = results[0]  # YOLOv11 returns list-like results
 
+                # Draw and display
+                annotated_frame = result.plot()
+                annotated_frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
                 stframe.image(annotated_frame_rgb, channels="RGB", use_container_width=True)
-                #time.sleep(wait_time / 1000.0)
+                time.sleep(speed / 1000.0)
+
+                # Collect detections
+                boxes = result.boxes
+                if boxes is not None and hasattr(boxes, 'cls'):
+                    for cls_id, conf, box_coords in zip(boxes.cls, boxes.conf, boxes.xyxy):
+                        detections.append({
+                            "frame": frame_number,
+                            "class": model.names[int(cls_id)],
+                            "confidence": float(conf),
+                            "xmin": float(box_coords[0]),
+                            "ymin": float(box_coords[1]),
+                            "xmax": float(box_coords[2]),
+                            "ymax": float(box_coords[3]),
+                        })
+
+                frame_number += 1
 
             cap.release()
             os.remove(temp_vid_path)
+
+            if detections:
+                df = pd.DataFrame(detections)
+                st.markdown("### 📊 Detection Summary")
+                st.dataframe(df)
+            else:
+                st.warning("No objects were detected.")
