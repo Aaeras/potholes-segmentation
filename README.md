@@ -16,6 +16,6 @@ https://docs.ultralytics.com/datasets/segment/crack-seg/
 https://universe.roboflow.com/search?q=model%253Ayolov11%2520potholes
 
 # How to Run Locally
-git clone https://github.com/klurpicolo/potholes-segmentation.git
-cd potholes-segmentation
+git clone https://github.com/klurpicolo/potholes-segmentation.git  
+cd potholes-segmentation  
 streamlit run 1_🔒_Login.py
