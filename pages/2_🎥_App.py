@@ -79,8 +79,8 @@ if uploaded_file is not None:
                 annotated_frame = res.plot()
                 annotated_frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
 
-                stframe.image(annotated_frame_rgb, channels="RGB", use_column_width=True)
-                time.sleep(wait_time / 1000.0)
+                stframe.image(annotated_frame_rgb, channels="RGB", use_container_width=True)
+                #time.sleep(wait_time / 1000.0)
 
             cap.release()
             os.remove(temp_vid_path)
