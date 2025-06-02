@@ -67,9 +67,6 @@ if uploaded_file is not None:
         detections = []
         frame_number = 0
 
-        # Optional: let user set delay
-        speed = st.slider("Playback speed (ms delay between frames)", 0, 100, 10, 5)
-
         if st.button("Detect Objects on Video"):
             fps = cap.get(cv2.CAP_PROP_FPS)
             while cap.isOpened():
